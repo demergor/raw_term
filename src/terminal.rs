@@ -135,7 +135,7 @@ fn term_dimensions() -> Result<(u16, u16), TermPrepError> {
     }
 
     let winsz = unsafe {winsz.assume_init() };
-    if winsz.ws_col <= 0 || winsz.ws_row <= 0 {
+    if winsz.ws_col == 0 || winsz.ws_row == 0 {
         return Err(TermPrepError::BadTerminalSize);
     }
 

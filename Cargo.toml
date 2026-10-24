@@ -2,6 +2,12 @@
 name = "raw_term"
 version = "0.1.0"
 edition = "2024"
+description = "Library for putting the terminal into raw mode and parsing keyboard input"
+license = "MIT"
+repository = "https://github.com/demergor/raw_term"
+readme = "README.md"
+keywords = ["terminal", "tui"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 libc = "0.2.191"
