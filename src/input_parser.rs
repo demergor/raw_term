@@ -10,11 +10,11 @@ const BACKSPACE: u8 = b'\x08';
 // UTF8
 const _ONE_BYTE_TEST: u8 = 0b1000_0000;
 const _ONE_BYTE_EXPECTED: u8 = 0b0000_0000;
-const TWO_BYTE_TEST: u8 = 0b1100_0000;
+const TWO_BYTE_TEST: u8 = 0b1110_0000;
 const TWO_BYTE_EXPECTED: u8 = 0b1100_0000;
 const THREE_BYTE_TEST: u8 = 0b1111_0000;
 const THREE_BYTE_EXPECTED: u8 = 0b1110_0000;
-const FOUR_BYTE_TEST: u8 = 0b1111_0000;
+const FOUR_BYTE_TEST: u8 = 0b1111_1000;
 const FOUR_BYTE_EXPECTED: u8 = 0b1111_0000;
 const CONTINUATION_BYTE_TEST: u8 = 0b1100_0000;
 const CONTINUATION_BYTE_EXPECTED: u8 = 0b1000_0000;
@@ -42,12 +42,12 @@ impl InputParser {
         })
     }
 
-    pub fn poll_key(&mut self) {
+    pub fn poll_key(&mut self) -> bool {
         let Ok(ready) = Terminal::byte_ready(self.poll_timeout_ms) else {
-            return;
+            return true;
         };
 
-        if !ready && self.state != ParseState::Normal {
+        if !ready {
             match self.state {
                 ParseState::Escape => self.pending_keys.push_back(Key::Escape),
                 ParseState::Utf8(_) => self.multi_byte_buf.clear(),
@@ -60,18 +60,22 @@ impl InputParser {
                     self.pending_keys.push_back(Key::Char('['));
                     self.pending_keys.push_back(Key::Char('3'));
                 }
-                _ => (),
+                ParseState::Normal => (),
             }
 
             self.state = ParseState::Normal;
-            return;
+            return true;
         }
 
-        let Ok(Some(byte)) = read_byte() else {
-            return;
-        };
-
-        self.handle_byte(byte);
+        match read_byte() {
+            Ok(Some(byte)) => {
+                self.handle_byte(byte);
+                true
+            }
+            Ok(None) => false,
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => true,
+            Err(_) => false,
+        }
     }
 
     fn handle_byte(&mut self, byte: u8) {
@@ -113,6 +117,7 @@ impl InputParser {
                 if byte & CONTINUATION_BYTE_TEST != CONTINUATION_BYTE_EXPECTED {
                     self.multi_byte_buf.clear();
                     self.state = ParseState::Normal;
+                    self.handle_normal(byte);
                     return;
                 }
 
@@ -141,6 +146,7 @@ impl InputParser {
                 };
             }
             ParseState::Csi => {
+                self.state = ParseState::Normal;
                 match byte {
                     b'3' => self.state = ParseState::CsiDel,
                     b'A' => self.pending_keys.push_back(Key::ArrowUp),
@@ -150,20 +156,18 @@ impl InputParser {
                     byte => {
                         self.pending_keys.push_back(Key::Escape);
                         self.pending_keys.push_back(Key::Char('['));
-                        self.state = ParseState::Normal;
                         self.handle_normal(byte);
                     }
                 }
-
-                self.state = ParseState::Normal;
             }
         }
     }
 
     fn handle_normal(&mut self, byte: u8) {
         match byte {
+            b'\x03' => self.pending_keys.push_back(Key::CtrlC),
             terminal::ESC => self.state = ParseState::Escape,
-            b'\n' => self.pending_keys.push_back(Key::Enter),
+            b'\r' | b'\n' => self.pending_keys.push_back(Key::Enter),
             byte if byte & TWO_BYTE_TEST == TWO_BYTE_EXPECTED => {
                 self.multi_byte_buf.push(byte);
                 self.state = ParseState::Utf8(1)
@@ -177,7 +181,9 @@ impl InputParser {
                 self.state = ParseState::Utf8(3)
             }
             BACKSPACE | b'\x7f' => self.pending_keys.push_back(Key::Backspace),
-            byte => self.pending_keys.push_back(Key::Char(char::from(byte))),
+            byte if byte.is_ascii() => 
+                self.pending_keys.push_back(Key::Char(char::from(byte))),
+            _ => (),
         }
     }
 }

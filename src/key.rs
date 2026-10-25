@@ -11,4 +11,6 @@ pub enum Key {
     ArrowDown,
     ArrowRight,
     ArrowLeft,
+
+    CtrlC,
 }

@@ -1,5 +1,8 @@
 use std::{
-    error, fmt::{self, Display}, io::{self, Write}, mem::MaybeUninit,
+    error,
+    fmt::{self, Display},
+    io::{self, Write},
+    mem::MaybeUninit,
 };
 
 pub const ESC: u8 = b'\x1b';
@@ -54,7 +57,8 @@ impl Terminal {
             return Err(io::Error::last_os_error());
         }
 
-        Ok(result > 0 && (pollfd.revents & libc::POLLIN) != 0)
+        let mask = libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL;
+        Ok(result > 0 && (pollfd.revents & mask) != 0)
     }
 }
 
@@ -65,7 +69,6 @@ impl Drop for Terminal {
             let _ = io::stdout().write_all(LEAVE_ALT_SCREEN.as_bytes());
             let _ = io::stdout().flush();
         }
-
     }
 }
 
@@ -111,11 +114,8 @@ fn term_attrs() -> Result<libc::termios, TermPrepError> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn set_term_attrs(
-    termios: &libc::termios,
-) -> Result<(), TermPrepError> {
-    let result =
-        unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, termios) };
+fn set_term_attrs(termios: &libc::termios) -> Result<(), TermPrepError> {
+    let result = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, termios) };
     if result == -1 {
         return Err(TermPrepError::Io(io::Error::last_os_error()));
     }
@@ -126,15 +126,13 @@ fn set_term_attrs(
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn term_dimensions() -> Result<(u16, u16), TermPrepError> {
     let mut winsz = MaybeUninit::<libc::winsize>::uninit();
-    let result = unsafe {
-        libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, winsz.as_mut_ptr())
-    };
+    let result = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, winsz.as_mut_ptr()) };
 
     if result == -1 {
         return Err(TermPrepError::Io(io::Error::last_os_error()));
     }
 
-    let winsz = unsafe {winsz.assume_init() };
+    let winsz = unsafe { winsz.assume_init() };
     if winsz.ws_col == 0 || winsz.ws_row == 0 {
         return Err(TermPrepError::BadTerminalSize);
     }
